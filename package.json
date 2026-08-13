@@ -1,0 +1,33 @@
+{
+  "name": "@langgraph/adapter-fastify",
+  "version": "0.1.0",
+  "description": "Fastify plugin for @langgraph/toolkit: graph routes with native SSE.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "LICENSE",
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@langgraph/toolkit": "0.1.0"
+  },
+  "peerDependencies": {
+    "fastify": "^4 || ^5"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "fastify": "^4.27.0",
+    "@types/node": "^20",
+    "vitest": "^1.6.0"
+  }
+}
