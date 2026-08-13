@@ -1,14 +1,14 @@
 /**
- * @langgraph/adapter-fastify
+ * @langgraph-toolkit/adapter-fastify
  *
  * Fastify plugin: registers graph run/stream routes, adds an app.langgraph
  * decorator exposing the registry, and uses reply.raw for native SSE.
  *
- * Install: npm install fastify @langgraph/adapter-fastify
+ * Install: npm install fastify @langgraph-toolkit/adapter-fastify
  * Peer: fastify
  */
 import type { FastifyInstance, FastifyPluginCallback } from "fastify";
-import type { GraphRegistry, JsonObject, JsonValue, StepEvent } from "@langgraph/toolkit";
+import type { GraphRegistry, JsonObject, JsonValue, StepEvent } from "@langgraph-toolkit/core";
 
 /** Options for langgraphFastify plugin; defaults map to /agents/:name. */
 export interface LangGraphFastifyOptions {
