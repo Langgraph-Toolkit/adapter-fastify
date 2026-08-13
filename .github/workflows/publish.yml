@@ -20,7 +20,18 @@ jobs:
           node-version: 22.14.0
           registry-url: https://registry.npmjs.org
       - run: npm install --global npm@11.5.1
-      - run: npm install --ignore-scripts --no-audit --no-fund
+      - uses: actions/checkout@v4
+        with:
+          repository: Langgraph-Toolkit/core
+          ref: main
+          path: .ci/core
+      - name: Install core dependency
+        working-directory: .ci/core
+        run: npm install --ignore-scripts --no-audit --no-fund --package-lock=false
+      - name: Build core dependency
+        working-directory: .ci/core
+        run: npm run build
+      - run: npm install --ignore-scripts --no-audit --no-fund --no-save --package-lock=false ./.ci/core
       - run: npm run build
       - run: npm run test --if-present
 
@@ -38,6 +49,17 @@ jobs:
           node-version: 22.14.0
           registry-url: https://registry.npmjs.org
       - run: npm install --global npm@11.5.1
-      - run: npm install --ignore-scripts --no-audit --no-fund
+      - uses: actions/checkout@v4
+        with:
+          repository: Langgraph-Toolkit/core
+          ref: main
+          path: .ci/core
+      - name: Install core dependency
+        working-directory: .ci/core
+        run: npm install --ignore-scripts --no-audit --no-fund --package-lock=false
+      - name: Build core dependency
+        working-directory: .ci/core
+        run: npm run build
+      - run: npm install --ignore-scripts --no-audit --no-fund --no-save --package-lock=false ./.ci/core
       - run: npm run build
       - run: npm publish --access public --provenance
