@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import Fastify from "fastify";
-import { GraphRegistry, defineGraph, defineState } from "@langgraph-toolkit/core";
+import { defineGraph, defineState } from "@langgraph-toolkit/core";
+import { GraphRegistry } from "@langgraph-toolkit/core/runtime";
 import { langgraphFastify } from "../src/index.js";
 
 function makeRegistry(): GraphRegistry {

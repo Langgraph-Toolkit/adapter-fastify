@@ -6,7 +6,8 @@
  */
 import type { FastifyInstance, FastifyPluginCallback } from "fastify";
 import { GraphRuntimeError } from "@langgraph-toolkit/core";
-import type { GraphRegistry, JsonObject, JsonValue, StepEvent, ToolkitRuntime } from "@langgraph-toolkit/core";
+import type { JsonObject, JsonValue, StepEvent } from "@langgraph-toolkit/core";
+import type { GraphRegistry, ToolkitRuntime } from "@langgraph-toolkit/core/runtime";
 
 /** Options for langgraphFastify plugin; defaults map to /agents/:name. */
 export interface LangGraphFastifyOptions {
