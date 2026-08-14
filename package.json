@@ -29,5 +29,9 @@
     "fastify": "^4.27.0",
     "@types/node": "^20",
     "vitest": "^1.6.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Langgraph-Toolkit/adapter-fastify.git"
   }
 }
