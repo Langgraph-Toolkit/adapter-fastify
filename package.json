@@ -1,6 +1,6 @@
 {
   "name": "@langgraph-toolkit/adapter-fastify",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Fastify plugin for @langgraph-toolkit/core: graph routes with native SSE.",
   "type": "module",
   "main": "./dist/index.js",
@@ -16,10 +16,11 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc"
+    "build": "tsc",
+    "test": "vitest run"
   },
   "dependencies": {
-    "@langgraph-toolkit/core": "0.1.0"
+    "@langgraph-toolkit/core": "0.1.1"
   },
   "peerDependencies": {
     "fastify": "^4 || ^5"

@@ -70,4 +70,6 @@ jobs:
         run: node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync("package.json","utf8")); p.dependencies["@langgraph-toolkit/core"]=`file:${process.env.LOCAL_CORE}`; fs.writeFileSync("package.json", JSON.stringify(p,null,2)+"\n");'
       - run: npm install --ignore-scripts --no-audit --no-fund --package-lock=false
       - run: npm run build
+      - name: Restore registry dependency metadata
+        run: git checkout -- package.json
       - run: npm publish --access public --provenance

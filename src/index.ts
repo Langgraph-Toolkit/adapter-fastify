@@ -115,6 +115,9 @@ export const langgraphFastify: FastifyPluginCallback<LangGraphFastifyOptions> = 
     }
     reply.code(200).header("Content-Type", "text/event-stream").header("Cache-Control", "no-cache").header("Connection", "keep-alive");
     const raw = reply.raw;
+    raw.setHeader("Content-Type", "text/event-stream");
+    raw.setHeader("Cache-Control", "no-cache");
+    raw.setHeader("Connection", "keep-alive");
     const controller = new AbortController();
     request.raw.on("aborted", () => controller.abort());
     try {
