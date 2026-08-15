@@ -6,8 +6,9 @@
  */
 import type { FastifyInstance, FastifyPluginCallback } from "fastify";
 import { GraphRuntimeError } from "@langgraph-toolkit/core";
-import type { JsonObject, JsonValue, StepEvent } from "@langgraph-toolkit/core";
-import type { GraphRegistry, ToolkitRuntime } from "@langgraph-toolkit/core/runtime";
+import type { CompiledGraph, GraphDefinition, JsonObject, JsonValue, StepEvent } from "@langgraph-toolkit/core";
+import { GraphRegistry } from "@langgraph-toolkit/core/runtime";
+import { ToolkitRuntime } from "@langgraph-toolkit/core/runtime";
 
 /** Options for langgraphFastify plugin; defaults map to /agents/:name. */
 export interface LangGraphFastifyOptions {
@@ -21,6 +22,16 @@ export interface LangGraphFastifyOptions {
   readonly streamPath?: string;
   /** Require x-api-key header (string equality or validator). */
   readonly apiKey?: string | ((key: string) => boolean);
+}
+
+/** Zero-config options for createFastifyAdapter(). */
+export interface FastifyAdapterOptions extends Omit<LangGraphFastifyOptions, "graphs" | "runtime"> {}
+
+/** Fastify resource returned by createFastifyAdapter(). */
+export interface FastifyAdapter<TGraph extends object = object> {
+  readonly graph: TGraph;
+  readonly runtime: GraphRegistry;
+  readonly plugin: FastifyPluginCallback<LangGraphFastifyOptions>;
 }
 
 declare module "fastify" {
@@ -141,6 +152,41 @@ export const langgraphFastify: FastifyPluginCallback<LangGraphFastifyOptions> = 
 
 export function encodeStepEvent(event: StepEvent): string {
   return encodeSse(event.type, event);
+}
+
+/** Create a Fastify plugin bound to one graph resource or registry. */
+export function createFastifyAdapter<TGraph extends object>(graph: TGraph, options: FastifyAdapterOptions = {}): FastifyAdapter<TGraph> {
+  const runtime = normalizeGraph(graph);
+  return {
+    graph,
+    runtime,
+    plugin: (app, _pluginOptions, done) => langgraphFastify(app, { ...options, graphs: runtime }, done),
+  };
+}
+
+function normalizeGraph<TGraph extends object>(graph: TGraph): GraphRegistry {
+  if (graph instanceof ToolkitRuntime) return graph;
+  const runtime = new GraphRegistry();
+  const source = graph as object;
+  const collection = source as { readonly list?: () => string[]; readonly get?: (name: string) => CompiledGraph<object> | undefined };
+  if (typeof collection.list === "function" && typeof collection.get === "function") {
+    for (const name of collection.list()) {
+      const compiled = collection.get(name);
+      if (compiled && !runtime.has(compiled.name)) runtime.add(compiled);
+    }
+    return runtime;
+  }
+  const executable = source as { readonly name?: string; readonly definition?: GraphDefinition<object>; readonly run?: (input: object) => Promise<object>; readonly stream?: (input: object) => AsyncIterable<object> };
+  if (typeof executable.name === "string" && executable.definition !== undefined && typeof executable.run === "function" && typeof executable.stream === "function") {
+    runtime.add(graph as CompiledGraph<object>);
+    return runtime;
+  }
+  const builder = source as { readonly build?: () => CompiledGraph<object> };
+  if (typeof builder.build === "function") {
+    runtime.add(builder.build());
+    return runtime;
+  }
+  throw new GraphRuntimeError("createFastifyAdapter requires a compiled graph, graph builder, runtime, or registry.");
 }
 
 export default langgraphFastify;

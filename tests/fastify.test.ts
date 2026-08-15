@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import Fastify from "fastify";
-import { defineGraph, defineState } from "@langgraph-toolkit/core";
+import { defineGraph, defineState } from "@langgraph-toolkit/core/legacy";
 import { GraphRegistry } from "@langgraph-toolkit/core/runtime";
-import { langgraphFastify } from "../src/index.js";
+import { createFastifyAdapter, langgraphFastify } from "../src/index.js";
 
 function makeRegistry(): GraphRegistry {
   const registry = new GraphRegistry();
@@ -48,5 +48,11 @@ describe("adapter-fastify", () => {
     expect(stream.body).toContain("event: node_start");
     expect(stream.body).toContain("event: node_end");
     await app.close();
+  });
+
+  it("creates a plugin resource from an existing registry", () => {
+    const adapter = createFastifyAdapter(makeRegistry());
+    expect(adapter.runtime.list()).toEqual(["ping"]);
+    expect(typeof adapter.plugin).toBe("function");
   });
 });
