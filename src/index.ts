@@ -1,14 +1,15 @@
 /**
  * @langgraph-toolkit/adapter-fastify
  *
- * Fastify plugin: registers graph run/stream routes, adds an app.langgraph
- * decorator exposing the registry, and uses reply.raw for native SSE.
+ * Fastify plugin: retains migration run/stream routes and provides a canonical
+ * per-resource lifecycle plugin through createFastifyAdapter().
  */
+import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyPluginCallback } from "fastify";
 import { GraphRuntimeError } from "@langgraph-toolkit/core";
 import type { CompiledGraph, GraphDefinition, JsonObject, JsonValue, StepEvent } from "@langgraph-toolkit/core";
 import { GraphRegistry } from "@langgraph-toolkit/core/runtime";
-import { ToolkitRuntime } from "@langgraph-toolkit/core/runtime";
+import { createGraphLifecycle, ToolkitRuntime, type GraphLifecycle } from "@langgraph-toolkit/core/runtime";
 
 /** Options for langgraphFastify plugin; defaults map to /agents/:name. */
 export interface LangGraphFastifyOptions {
@@ -31,6 +32,8 @@ export interface FastifyAdapterOptions extends Omit<LangGraphFastifyOptions, "gr
 export interface FastifyAdapter<TGraph extends object = object> {
   readonly graph: TGraph;
   readonly runtime: GraphRegistry;
+  /** Canonical graph lifecycle backing the mounted HTTP routes. */
+  readonly lifecycle: GraphLifecycle;
   readonly plugin: FastifyPluginCallback<LangGraphFastifyOptions>;
 }
 
@@ -154,13 +157,134 @@ export function encodeStepEvent(event: StepEvent): string {
   return encodeSse(event.type, event);
 }
 
+/** Options internal to one canonical lifecycle resource plugin. */
+interface FastifyLifecycleOptions {
+  readonly lifecycle: GraphLifecycle;
+  readonly name: string;
+  readonly apiKey?: LangGraphFastifyOptions["apiKey"];
+}
+
+/**
+ * Register canonical lifecycle routes relative to the host mount point.
+ *
+ * Routes match every framework adapter: POST /invoke, /stream, /resume,
+ * /cancel, /replay, /fork and GET /state, /history.
+ */
+export const lifecycleFastify: FastifyPluginCallback<FastifyLifecycleOptions> = (app, options, done) => {
+  const authorized = (request: { headers: Record<string, string | string[] | undefined> }, reply: { code: (statusCode: number) => { send: (payload: JsonObject) => void } }): boolean => {
+    if (validateApiKey(request, options.apiKey)) return true;
+    reply.code(401).send({ error: "Unauthorized" });
+    return false;
+  };
+  const fail = (reply: { code: (statusCode: number) => { send: (payload: JsonObject) => void } }, error: unknown): void => {
+    reply.code(error instanceof GraphRuntimeError ? 409 : 500).send({ error: error instanceof Error ? error.message : "Graph lifecycle failed" });
+  };
+
+  app.post("/invoke", async (request, reply) => {
+    if (!authorized(request, reply)) return;
+    try {
+      reply.send(await options.lifecycle.invoke(options.name, lifecycleRequest(request.body as JsonValue)));
+    } catch (error) {
+      fail(reply, error);
+    }
+  });
+  app.post("/stream", async (request, reply) => {
+    if (!authorized(request, reply)) return;
+    const value = lifecycleRequest(request.body as JsonValue);
+    const threadId = value.threadId ?? randomUUID();
+    reply.hijack();
+    const raw = reply.raw;
+    raw.setHeader("Content-Type", "text/event-stream");
+    raw.setHeader("Cache-Control", "no-cache");
+    raw.setHeader("Connection", "keep-alive");
+    const cancelOnClose = (): void => { options.lifecycle.cancel(options.name, threadId); };
+    request.raw.once("aborted", cancelOnClose);
+    raw.once("close", cancelOnClose);
+    try {
+      for await (const event of options.lifecycle.stream(options.name, { ...value, threadId })) {
+        raw.write(encodeSse(event.type, event));
+      }
+    } catch (error) {
+      raw.write(encodeSse("error", { message: error instanceof Error ? error.message : "Graph stream failed" }));
+    } finally {
+      raw.end();
+    }
+  });
+  app.post("/resume", async (request, reply) => {
+    if (!authorized(request, reply)) return;
+    try {
+      const body = bodyObject(request.body as JsonValue);
+      const response = "response" in body ? body.response : body.answer;
+      if (response === undefined) throw new GraphRuntimeError("resume requires a JSON response or answer field.");
+      reply.send(await options.lifecycle.resume(options.name, { threadId: requiredString(body, "threadId"), response }));
+    } catch (error) {
+      fail(reply, error);
+    }
+  });
+  app.post("/cancel", async (request, reply) => {
+    if (!authorized(request, reply)) return;
+    try {
+      const threadId = requiredString(bodyObject(request.body as JsonValue), "threadId");
+      reply.send({ cancelled: options.lifecycle.cancel(options.name, threadId), threadId });
+    } catch (error) {
+      fail(reply, error);
+    }
+  });
+  app.get("/state", async (request, reply) => {
+    if (!authorized(request, reply)) return;
+    try {
+      reply.send(await options.lifecycle.state(options.name, queryString(request.query as JsonObject, "threadId")));
+    } catch (error) {
+      fail(reply, error);
+    }
+  });
+  app.get("/history", async (request, reply) => {
+    if (!authorized(request, reply)) return;
+    try {
+      reply.send(await options.lifecycle.history(options.name, queryString(request.query as JsonObject, "threadId")));
+    } catch (error) {
+      fail(reply, error);
+    }
+  });
+  app.post("/replay", async (request, reply) => {
+    if (!authorized(request, reply)) return;
+    try {
+      const body = bodyObject(request.body as JsonValue);
+      reply.send(await options.lifecycle.replay(options.name, {
+        ...lifecycleRequest(body),
+        threadId: requiredString(body, "threadId"),
+        checkpointId: requiredString(body, "checkpointId"),
+      }));
+    } catch (error) {
+      fail(reply, error);
+    }
+  });
+  app.post("/fork", async (request, reply) => {
+    if (!authorized(request, reply)) return;
+    try {
+      const body = bodyObject(request.body as JsonValue);
+      reply.send(await options.lifecycle.fork(options.name, {
+        threadId: requiredString(body, "threadId"),
+        checkpointId: requiredString(body, "checkpointId"),
+        targetThreadId: requiredString(body, "targetThreadId"),
+      }));
+    } catch (error) {
+      fail(reply, error);
+    }
+  });
+  done();
+};
+
 /** Create a Fastify plugin bound to one graph resource or registry. */
 export function createFastifyAdapter<TGraph extends object>(graph: TGraph, options: FastifyAdapterOptions = {}): FastifyAdapter<TGraph> {
   const runtime = normalizeGraph(graph);
+  const name = resolveGraphName(graph, runtime);
+  const lifecycle = createGraphLifecycle(runtime);
   return {
     graph,
     runtime,
-    plugin: (app, _pluginOptions, done) => langgraphFastify(app, { ...options, graphs: runtime }, done),
+    lifecycle,
+    plugin: (app, _pluginOptions, done) => lifecycleFastify(app, { lifecycle, name, apiKey: options.apiKey }, done),
   };
 }
 
@@ -187,6 +311,45 @@ function normalizeGraph<TGraph extends object>(graph: TGraph): GraphRegistry {
     return runtime;
   }
   throw new GraphRuntimeError("createFastifyAdapter requires a compiled graph, graph builder, runtime, or registry.");
+}
+
+function resolveGraphName<TGraph extends object>(graph: TGraph, runtime: GraphRegistry): string {
+  const named = graph as { readonly name?: string };
+  if (typeof named.name === "string" && runtime.has(named.name)) return named.name;
+  const names = runtime.list();
+  if (names.length === 1) return names[0] as string;
+  throw new GraphRuntimeError("createFastifyAdapter requires one compiled graph. Use langgraphFastify when mounting a graph collection.");
+}
+
+function bodyObject(value: JsonValue): JsonObject {
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) return value as JsonObject;
+  return {};
+}
+
+function lifecycleRequest(value: JsonValue): { readonly input: JsonObject; readonly threadId?: string } {
+  const body = bodyObject(value);
+  const input = "input" in body ? bodyObject(body.input) : withoutLifecycleFields(body);
+  return typeof body.threadId === "string" ? { input, threadId: body.threadId } : { input };
+}
+
+function withoutLifecycleFields(body: JsonObject): JsonObject {
+  const result: Record<string, JsonValue> = {};
+  for (const [key, value] of Object.entries(body)) {
+    if (!["threadId", "checkpointId", "targetThreadId", "response", "answer"].includes(key)) result[key] = value;
+  }
+  return result;
+}
+
+function requiredString(body: JsonObject, key: string): string {
+  const value = body[key];
+  if (typeof value !== "string" || value.length === 0) throw new GraphRuntimeError(`${key} is required.`);
+  return value;
+}
+
+function queryString(query: JsonObject, key: string): string {
+  const value = query[key];
+  if (typeof value !== "string" || value.length === 0) throw new GraphRuntimeError(`${key} query parameter is required.`);
+  return value;
 }
 
 export default langgraphFastify;
